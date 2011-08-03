@@ -47,10 +47,15 @@ module ExecJS
           nil
         when ::Rhino::NativeObject
           value.inject({}) do |vs, (k, v)|
-            vs[k] = unbox(v) unless v.is_a?(::Rhino::NativeFunction) || v.is_a?(::Rhino::J::Function)
+            case v
+            when ::Rhino::NativeFunction, ::Rhino::J::Function
+              nil
+            else
+              vs[k] = unbox(v)
+            end
             vs
           end
-        when ::Array
+        when Array
           value.map { |v| unbox(v) }
         else
           value
