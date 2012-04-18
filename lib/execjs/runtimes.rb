@@ -1,4 +1,5 @@
 require "execjs/module"
+require "execjs/disabled_runtime"
 require "execjs/external_runtime"
 require "execjs/johnson_runtime"
 require "execjs/mustang_runtime"
@@ -7,6 +8,8 @@ require "execjs/ruby_rhino_runtime"
 
 module ExecJS
   module Runtimes
+    Disabled = DisabledRuntime.new
+
     RubyRacer = RubyRacerRuntime.new
 
     RubyRhino = RubyRhinoRuntime.new
@@ -18,7 +21,8 @@ module ExecJS
     Node = ExternalRuntime.new(
       :name        => "Node.js (V8)",
       :command     => ["nodejs", "node"],
-      :runner_path => ExecJS.root + "/support/node_runner.js"
+      :runner_path => ExecJS.root + "/support/node_runner.js",
+      :encoding    => 'UTF-8'
     )
 
     JavaScriptCore = ExternalRuntime.new(
@@ -30,13 +34,14 @@ module ExecJS
     SpiderMonkey = Spidermonkey = ExternalRuntime.new(
       :name        => "SpiderMonkey",
       :command     => "js",
-      :runner_path => ExecJS.root + "/support/basic_runner.js"
+      :runner_path => ExecJS.root + "/support/spidermonkey_runner.js"
     )
 
     JScript = ExternalRuntime.new(
       :name        => "JScript",
-      :command     => "cscript //E:jscript //Nologo",
-      :runner_path => ExecJS.root + "/support/jscript_runner.js"
+      :command     => "cscript //E:jscript //Nologo //U",
+      :runner_path => ExecJS.root + "/support/jscript_runner.js",
+      :encoding    => 'UTF-16LE' # CScript with //U returns UTF-16LE
     )
 
 

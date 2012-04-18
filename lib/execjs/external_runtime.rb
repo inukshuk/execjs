@@ -1,3 +1,4 @@
+require "shellwords"
 require "tempfile"
 
 module ExecJS
@@ -20,8 +21,9 @@ module ExecJS
 
       def exec(source, options = {})
         source = source.encode('UTF-8') if source.respond_to?(:encode)
+        source = "#{@source}\n#{source}" if @source
 
-        compile_to_tempfile([@source, source].join("\n")) do |file|
+        compile_to_tempfile(source) do |file|
           extract_result(@runtime.send(:exec_runtime, file.path))
         end
       end
@@ -59,7 +61,7 @@ module ExecJS
           status, value = output.empty? ? [] : MultiJson.decode(output)
           if status == "ok"
             value
-          elsif value == "SyntaxError: Parse error"
+          elsif value =~ /SyntaxError:/
             raise RuntimeError, value
           else
             raise ProgramError, value
@@ -91,7 +93,8 @@ module ExecJS
       @runner_path = options[:runner_path]
       @test_args   = options[:test_args]
       @test_match  = options[:test_match]
-      @binary      = locate_binary
+      @encoding    = options[:encoding]
+      @binary      = nil
     end
 
     def exec(source)
@@ -110,8 +113,29 @@ module ExecJS
 
     def available?
       require "multi_json"
-      @binary ? true : false
+      binary ? true : false
     end
+
+    private
+      def binary
+        @binary ||= locate_binary
+      end
+
+      def locate_executable(cmd)
+        if ExecJS.windows? && File.extname(cmd) == ""
+          cmd << ".exe"
+        end
+
+        if File.executable? cmd
+          cmd
+        else
+          path = ENV['PATH'].split(File::PATH_SEPARATOR).find { |p|
+            full_path = File.join(p, cmd)
+            File.executable?(full_path) && File.file?(full_path)
+          }
+          path && File.expand_path(cmd, path)
+        end
+      end
 
     protected
       def runner_source
@@ -119,8 +143,7 @@ module ExecJS
       end
 
       def exec_runtime(filename)
-        output = nil
-        IO.popen("#{@binary} #{filename} 2>&1") { |f| output = f.read }
+        output = sh("#{shell_escape(*(binary.split(' ') << filename))} 2>&1")
         if $?.success?
           output
         else
@@ -131,7 +154,7 @@ module ExecJS
       def locate_binary
         if binary = which(@command)
           if @test_args
-            output = `#{binary} #{@test_args} 2>&1`
+            output = `#{shell_escape(binary, @test_args)} 2>&1`
             binary if output.match(@test_match)
           else
             binary
@@ -140,19 +163,51 @@ module ExecJS
       end
 
       def which(command)
-        Array(command).each do |name|
+        Array(command).find do |name|
           name, args = name.split(/\s+/, 2)
-          result = if ExecJS.windows?
-            `"#{ExecJS.root}/support/which.bat" #{name}`
-          else
-            `command -v #{name} 2>/dev/null`
-          end
+          path = locate_executable(name)
 
-          if path = result.strip.split("\n").first
-            return args ? "#{path} #{args}" : path
+          next unless path
+
+          args ? "#{path} #{args}" : path
+        end
+      end
+
+      if "".respond_to?(:force_encoding)
+        def sh(command)
+          output, options = nil, {}
+          options[:external_encoding] = @encoding if @encoding
+          options[:internal_encoding] = Encoding.default_internal || 'UTF-8'
+          IO.popen(command, options) { |f| output = f.read }
+          output
+        end
+      else
+        require "iconv"
+
+        def sh(command)
+          output = nil
+          IO.popen(command) { |f| output = f.read }
+
+          if @encoding
+            Iconv.new('UTF-8', @encoding).iconv(output)
+          else
+            output
           end
         end
-        nil
+      end
+
+      if ExecJS.windows?
+        def shell_escape(*args)
+          # see http://technet.microsoft.com/en-us/library/cc723564.aspx#XSLTsection123121120120
+          args.map { |arg|
+            arg = %Q("#{arg.gsub('"','""')}") if arg.match(/[&|()<>^ "]/)
+            arg
+          }.join(" ")
+        end
+      else
+        def shell_escape(*args)
+          Shellwords.join(args)
+        end
       end
   end
 end
